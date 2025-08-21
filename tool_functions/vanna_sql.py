@@ -34,6 +34,15 @@ class PostgresConfig(BaseModel):
             raise ValueError('must not be empty')
         return v
 
+    def to_dict(self):
+        return {
+            "host": self.host,
+            "dbname": self.dbname,
+            "user": self.user,
+            "password": self.password,
+            "port": self.port
+        }
+
 def create_vanna_client(postgres_config: PostgresConfig) -> MyVanna:
     vn = MyVanna(config={'model': 'gpt-4o-dev', 'path': './chroma_langchain_db'})
     vn.connect_to_postgres(**postgres_config.model_dump())
@@ -43,9 +52,9 @@ def create_vanna_client(postgres_config: PostgresConfig) -> MyVanna:
 def train_vanna_client(vn: MyVanna, sql_training_data_path: str) -> MyVanna:
     df_information_schema = vn.run_sql("SELECT * FROM INFORMATION_SCHEMA.COLUMNS")
 
-    plan = vn.get_training_plan_generic(df_information_schema)
+    # plan = vn.get_training_plan_generic(df_information_schema)
 
-    vn.train(plan=plan)
+    # vn.train(plan=plan)
 
     # Sometimes you may want to add documentation about your business terminology or definitions.
     # vn.train(documentation="The names of company, product, cycle and product version of company Accenture, product Transformation GPS and cycle Cycle 1")
@@ -54,8 +63,9 @@ def train_vanna_client(vn: MyVanna, sql_training_data_path: str) -> MyVanna:
 
     with open(sql_training_data_path, 'r') as f:
         sqlFile = f.read()
+        [vn.train(sql=('--' + sql)) for sql in sqlFile.split('--')][1:]
     
-    vn.train(sql=sqlFile)
+    # vn.train(sql=sqlFile)
 
     return vn
 
@@ -70,27 +80,27 @@ if __name__=="__main__":
     )
     vn = create_vanna_client(postgres_config)
 
-    # vn = train_vanna_client(vn=vn, sql_training_data_path='tool_functions/product_version.sql')
+    vn = train_vanna_client(vn=vn, sql_training_data_path='tool_functions/product_version.sql')
 
-    # ## Asking the AI
+    ## Asking the AI
     # Whenever you ask a new question, it will find the 10 most relevant pieces of training data and use it as part of the LLM prompt to generate the SQL.
 
-    # Ask the AI
-    sql_query, result_df, _ = vn.ask(
-        question="What are the product drivers for company Accenture?",
-        print_results=False,
-        visualize=False,
-        allow_llm_to_see_data=True
-    )
+    # # Ask the AI
+    # sql_query, result_df, _ = vn.ask(
+    #     question="What are the product drivers for company Accenture, product Transformation GPS in cycle Cycle 1?",
+    #     print_results=False,
+    #     visualize=False,
+    #     allow_llm_to_see_data=True
+    # )
 
-    # Print the SQL query
-    print("Generated SQL Query:")
-    print(sql_query)
+    # # Print the SQL query
+    # print("Generated SQL Query:")
+    # print(sql_query)
 
-    # Print the result of the SQL query
-    print("\nQuery Result:")
-    if result_df is not None:
-        print(json.loads(result_df.to_json()))
-    else:
-        print("No results returned.")
+    # # Print the result of the SQL query
+    # print("\nQuery Result:")
+    # if result_df is not None:
+    #     print(json.loads(result_df.to_json()))
+    # else:
+    #     print("No results returned.")
 

@@ -5,6 +5,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from tool_functions.vanna_sql import PostgresConfig, create_vanna_client
+from tool_functions.chromadb_operations import get_content_from_collection
 from models import OPENAI_MODEL
 
 from dataclasses import dataclass
@@ -41,7 +42,7 @@ sql_query_result_agent = Agent(
 )
 
 @sql_query_result_agent.tool
-def get_sql_query_and_result(ctx: RunContext[Dependencies], question:str):
+def get_sql_query_and_result_tool(ctx: RunContext[Dependencies], question: str) -> tuple[str, str]:
     vn = create_vanna_client(ctx.deps.connection_string)
     sql_query, result_df, _ = vn.ask(
         question=question,
@@ -49,7 +50,12 @@ def get_sql_query_and_result(ctx: RunContext[Dependencies], question:str):
         visualize=False,
         allow_llm_to_see_data=True
     )
-    return sql_query, result_df.to_json()
+    
+    # Check if result_df is None
+    if result_df is None:
+        return sql_query, '[]'  # Return an empty JSON array if there are no results
+    
+    return sql_query, result_df.to_json(orient='records')
 
 @sql_query_result_agent.system_prompt
 def system_prompt(ctx: RunContext[Dependencies]) -> str:
@@ -81,22 +87,22 @@ def sql_query_result_agent_output_validator(ctx: RunContext[Dependencies], outpu
         print("SQLAgent Result Validator: SQLSuccess object passed custom validation.")
         return output
     
-def main():
-    postgres_config = PostgresConfig(
-        host='localhost',
-        dbname='ctre_unstable',
-        user='orgplatform',
-        password='orgplatform',
-        port=5432
-    )
+# def main():
+#     postgres_config = PostgresConfig(
+#         host='localhost',
+#         dbname='ctre_unstable',
+#         user='orgplatform',
+#         password='orgplatform',
+#         port=5432
+#     )
 
-    deps = Dependencies(connection_string=postgres_config)
+#     deps = Dependencies(connection_string=postgres_config)
 
-    user_query = "How many product drivers for company Accenture in Cycle 1?"
+#     user_query = "What are the drivers for company Accenture, product Transformation GPS in Cycle 1? Visualize in table"
 
-    result = sql_query_result_agent.run_sync(user_query, deps=deps)
+#     result = sql_query_result_agent.run_sync(user_query, deps=deps)
 
-    print(result)
+#     print(result)
 
-if __name__=="__main__":
-    main()
+# if __name__=="__main__":
+#     main()
