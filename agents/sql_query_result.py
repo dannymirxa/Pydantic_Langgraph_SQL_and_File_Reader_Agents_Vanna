@@ -32,7 +32,7 @@ SQLResponse: TypeAlias = Union[SQLSuccess, InvalidRequest]
 
 @dataclass
 class Dependencies:
-    connection_string: PostgresConfig
+    connection_string: str
 
 sql_query_result_agent = Agent(
     model=OPENAI_MODEL,
@@ -43,19 +43,25 @@ sql_query_result_agent = Agent(
 
 @sql_query_result_agent.tool
 def get_sql_query_and_result_tool(ctx: RunContext[Dependencies], question: str) -> tuple[str, str]:
-    vn = create_vanna_client(ctx.deps.connection_string)
-    sql_query, result_df, _ = vn.ask(
-        question=question,
-        print_results=False,
-        visualize=False,
-        allow_llm_to_see_data=True
-    )
+    try:
+        connection_string = json.loads(ctx.deps.connection_string)
+        connection_string_validated = PostgresConfig(**connection_string)
+        vn = create_vanna_client(connection_string_validated)
+        sql_query, result_df, _ = vn.ask(
+            question=question,
+            print_results=False,
+            visualize=False,
+            allow_llm_to_see_data=True
+        )
+        
+        # Check if result_df is None
+        if result_df is None:
+            return sql_query, '[]'  # Return an empty JSON array if there are no results
+        
+        return sql_query, result_df.to_json(orient='records')    
+    except:
+        raise TypeError("connection string not valid")
     
-    # Check if result_df is None
-    if result_df is None:
-        return sql_query, '[]'  # Return an empty JSON array if there are no results
-    
-    return sql_query, result_df.to_json(orient='records')
 
 @sql_query_result_agent.system_prompt
 def system_prompt(ctx: RunContext[Dependencies]) -> str:
@@ -88,13 +94,21 @@ def sql_query_result_agent_output_validator(ctx: RunContext[Dependencies], outpu
         return output
     
 # def main():
-#     postgres_config = PostgresConfig(
-#         host='localhost',
-#         dbname='ctre_unstable',
-#         user='orgplatform',
-#         password='orgplatform',
-#         port=5432
-#     )
+#     # postgres_config = PostgresConfig(
+#     #     host='localhost',
+#     #     dbname='ctre_unstable',
+#     #     user='orgplatform',
+#     #     password='orgplatform',
+#     #     port=5432
+#     # )
+
+#     postgres_config = """{
+#                         "host":"localhost",
+#                         "dbname":"ctre_unstable",
+#                         "user":"orgplatform",
+#                         "password":628468,
+#                         "port":5432
+#                         }"""
 
 #     deps = Dependencies(connection_string=postgres_config)
 

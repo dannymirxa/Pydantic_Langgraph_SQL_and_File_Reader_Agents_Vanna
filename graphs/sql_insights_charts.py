@@ -33,7 +33,7 @@ class AllState(TypedDict):
     # request: str
     request: Annotated[list[AnyMessage], add_messages]
 
-    connection_string: PostgresConfig
+    connection_string: Optional[str]
     sql_query: Optional[str]
     answer: Optional[str]
     query_results: Optional[str]
@@ -53,15 +53,19 @@ def sql_query_creator_node(state: AllState):
     sql_query_agent_response = sql_query_result_agent.run_sync(
                     user_prompt=state["request"][-1].content,
                     deps=sql_query_result.Dependencies(
-                                state["connection_string"]
+                                connection_string= \
+                                    # state["connection_string"]
+                                        """{
+                                            "host":"localhost",
+                                            "dbname":"ctre_unstable",
+                                            "user":"orgplatform",
+                                            "password":"orgplatform",
+                                            "port":5432
+                                        }"""
+                                     
                 ))
     
     if isinstance(sql_query_agent_response.output, SQLSuccess):
-        # Modify the SQL query to include additional columns for context
-        # print("isinstance(sql_query_agent_response.output, SQLSuccess)")
-        # print(sql_query_agent_response.output.sql_query)
-        # print(sql_query_agent_response.output.answer)
-        # print(sql_query_agent_response.output.query_results)
         return {
             "sql_query": sql_query_agent_response.output.sql_query,
             "answer": sql_query_agent_response.output.answer,
@@ -81,7 +85,6 @@ def data_insights_node(state: AllState):
             )
     
     if isinstance(data_insights_agent_response.output, DataframeSuccess):
-        # print(state["request"][-1].content)
         # print(data_insights_agent_response.output.data_insights)
         return {
             "data_insights": data_insights_agent_response.output.data_insights,
@@ -187,11 +190,13 @@ def main():
                         "request":
                             [HumanMessage(content="How many drivers of company Accenture for each cycle? visualize in bar chart and line chart")],
                         "connection_string":
-                            PostgresConfig( host='localhost',
-                                            dbname='ctre_unstable',
-                                            user='orgplatform',
-                                            password='orgplatform',
-                                            port=5432 ),
+                                                """{
+                                                    "host":"localhost",
+                                                    "dbname":"ctre_unstable",
+                                                    "user":"orgplatform",
+                                                    "password":"orgplatform",
+                                                    "port":5432
+                                                }""",
                         "files": 
                             "/mnt/c/Projects/Pydantic_Langgraph_SQL_and_File_Reader_Agents/files"
                     }
