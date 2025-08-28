@@ -94,21 +94,21 @@ def sql_query_result_agent_output_validator(ctx: RunContext[Dependencies], outpu
         return output
     
 # def main():
-#     # postgres_config = PostgresConfig(
-#     #     host='localhost',
-#     #     dbname='ctre_unstable',
-#     #     user='orgplatform',
-#     #     password='orgplatform',
-#     #     port=5432
-#     # )
+#     postgres_config = PostgresConfig(
+#         host='localhost',
+#         dbname='ctre_unstable',
+#         user='orgplatform',
+#         password='orgplatform',
+#         port=5432
+#     )
 
-#     postgres_config = """{
-#                         "host":"localhost",
-#                         "dbname":"ctre_unstable",
-#                         "user":"orgplatform",
-#                         "password":628468,
-#                         "port":5432
-#                         }"""
+#     # postgres_config = """{
+#     #                     "host":"localhost",
+#     #                     "dbname":"ctre_unstable",
+#     #                     "user":"orgplatform",
+#     #                     "password":orgplatform,
+#     #                     "port":5432
+#     #                     }"""
 
 #     deps = Dependencies(connection_string=postgres_config)
 
