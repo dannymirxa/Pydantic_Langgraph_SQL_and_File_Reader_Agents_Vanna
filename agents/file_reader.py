@@ -2,7 +2,7 @@ import sys
 
 # adding Folder_2 to the system path
 # sys.path.insert(0, 'utils')
-from util_functions.file_operations import list_files, read_json, read_csv, read_pdf, read_txt
+from tool_functions.file_operations import list_files, read_json, read_csv, read_pdf, read_txt
 from models import OPENAI_MODEL
 
 from dotenv import load_dotenv
@@ -14,7 +14,7 @@ from annotated_types import MinLen
 from pydantic_ai import Agent, ModelRetry, RunContext
 
 
-load_dotenv("/mnt/c/Projects/Pydantic_Langgraph_SQL_and_File_Reader_Agents/.env")
+load_dotenv(".env")
 
 class FileSuccess(BaseModel):
     file_content: Annotated[str, MinLen(1)] = Field(alias='file_content', description='text content of the file')
@@ -32,7 +32,7 @@ class Dependencies:
 file_reader_agent = Agent(
     model=OPENAI_MODEL,
     output_type=FileResponse,
-    result_retries=3,
+    retries=3,
 )
 
 @file_reader_agent.system_prompt

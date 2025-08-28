@@ -1,149 +1,180 @@
-import os, sys
-import asyncio
 from dotenv import load_dotenv
-from dataclasses import dataclass
-from typing_extensions import Annotated, TypeAlias, Union, Optional
-from annotated_types import MinLen
-from pydantic import BaseModel, Field
-from pydantic_ai import Agent, ModelRetry, RunContext
-from sqlalchemy import create_engine, Engine
-import logfire
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import AnyMessage, add_messages
+from typing_extensions import TypedDict, Annotated, Optional
+from sqlalchemy import Engine, create_engine
+from langchain_core.messages import HumanMessage
+import re, io
+from textwrap import dedent
+import pandas as pd
+import plotly.express as px
 
-from models import OPENAI_MODEL
-from agents import file_reader, master, sql_query_creator_insights_curator
-from agents.sql_query_result import sql_query_creator_agent, SQLResponse
-from agents.file_reader import file_reader_agent,  FileResponse
-from agents.master import MasterAgentResponse 
-from util_functions.file_operations import list_files
+from graphs.sql_insights_charts import create_sql_insights_charts_graph
 
-load_dotenv("/mnt/c/Projects/Pydantic_Langgraph_SQL_and_File_Reader_Agents/.env")
+from agents import master, file_reader
+from agents.file_reader import file_reader_agent, FileSuccess
+from agents.chart_generator import chartOptions, chart_creator_agent, ChartSuccess
 
-logfire.configure(token=os.getenv("LOGFIRE_TOKEN"))
-logfire.instrument_pydantic_ai() 
-
-# Initialize database engine
-DATABASE_URL = "postgresql+psycopg2://chinook:chinook@localhost:5433/chinook_auto_increment" # Replace with your actual database URL
-db_engine = create_engine(DATABASE_URL)
-
-class MasterAgentResponse(BaseModel):
-    response: Union[SQLResponse, FileResponse] = Field(description="The response from the chosen sub-agent.")
-
-@dataclass
-class MasterDependencies:
-    db_engine: Engine
-    available_files: list[str]
-
-master_agent = Agent(
-    model=OPENAI_MODEL,
-    output_type=MasterAgentResponse,
-    result_retries=3,
-)
-
-@master_agent.system_prompt
-def master_system_prompt(ctx: RunContext[MasterDependencies]) -> str:
-    return f"""\
-    You are a master AI agent designed to coordinate between a SQL query creator agent and a file reader agent.
-    Your primary goal is to understand the user's request and delegate it to the appropriate sub-agent.
-
-    Here are the available sub-agents and their capabilities:
-    - **SQL Query Creator Agent:** Use this agent when the user's request involves querying a database.
-      It can list tables, describe table schemas, and run SQL queries.
-      Use the `run_sql_query_creator_agent` tool to interact with it.
-      The database engine is already configured.
-
-    - **File Reader Agent:** Use this agent when the user's request involves reading content from files.
-      It can read JSON, CSV, text, and PDF files.
-      Use the `run_file_reader_agent` tool to interact with it.
-      The available files are dynamically retrieved from the 'files/' directory.
-
-    **Instructions:**
-    1. Analyze the user's request carefully to determine the single, primary intent.
-    2. Based on the primary intent, select ONLY ONE of the available sub-agents to delegate the request to.
-    3. If the request involves querying a database, call `run_sql_query_creator_agent`.
-    4. If the request involves reading content from a file:
-        a. Identify the specific file name mentioned in the user's request (e.g., "crime data" -> "crime_data.csv").
-        b. Check if this file exists in the `available_files` list: {ctx.deps.available_files}.
-        c. If the file is NOT found in `available_files`, you MUST output an `InvalidRequest` with an `error_message` stating that the file was not found (e.g., "File 'crime_data.csv' not found."). DO NOT call `run_file_reader_agent`.
-        d. If the file IS found, call `run_file_reader_agent` with the user's original query.
-    5. If the user's request is ambiguous or involves multiple distinct intents (e.g., asking for both SQL data and file content in one query), you MUST prioritize the most direct interpretation and delegate to only ONE sub-agent. If the user requires information from both types of sources, they should ideally break down their request into separate, distinct queries.
-    6. The output of the chosen sub-agent or the `InvalidRequest` will be wrapped in a `MasterAgentResponse`.
-    """
-
-@master_agent.tool
-def run_sql_query_creator_agent(ctx: RunContext[MasterDependencies], user_query: str) -> SQLResponse:
-    """
-    Use this tool to delegate a user's request to the SQL Query Creator Agent.
-    This agent is suitable for requests involving database queries, table listing, or schema descriptions.
-    Pass the user's original query directly to this tool.
-    """
-    print(f"Delegating to SQL Query Creator Agent with query: {user_query}")
-    return sql_query_creator_agent.run_sync(user_query, deps=sql_query_creator_insights_curator.Dependencies(db_engine=ctx.deps.db_engine))
-
-@master_agent.tool
-def run_file_reader_agent(ctx: RunContext[MasterDependencies], user_query: str) -> FileResponse:
-    """
-    Use this tool to delegate a user's request to the File Reader Agent.
-    This agent is suitable for requests involving reading content from specific files.
-    Pass the user's original query directly to this tool.
-    """
-    print(f"Delegating to File Reader Agent with query: {user_query}")
-    return file_reader_agent.run_sync(user_query, deps=file_reader.Dependencies(files=ctx.deps.available_files))
+from agents.master import (
+                        master_agent, MasterAgentResponse,
+                        SQL_AGENT,
+                        FILE_AGENT,
+                        BOTH_AGENT,
+                        NONE
+                        )
+from tool_functions.file_operations import list_files
 
 
-async def main(request: str):
-    # Dynamically get available files
-    files_directory = "/mnt/c/Projects/Pydantic_Langgraph_SQL_and_File_Reader_Agents/files"
-    available_files = list_files(files_directory)
+load_dotenv('env')
 
-    # # Example 1: SQL query
-    # sql_query_result = await master_agent.run(
-    #     "Show me how many albums each artist has",
-    #     deps=MasterDependencies(db_engine=db_engine, available_files=available_files)
-    # )
+# connection_string = create_engine('postgresql+psycopg2://chinook:chinook@localhost:5433/chinook_auto_increment')
+# files = list_files(dir ="/mnt/c/Projects/Pydantic_Langgraph_SQL_and_File_Reader_Agents/files")
 
-    # # Example 2: File reading
-    # file_read_result = await master_agent.run(
-    #     "What is in the bike data?",
-    #     deps=MasterDependencies(db_engine=db_engine, available_files=available_files)
-    # )
+class AllState(TypedDict):
+    request: Annotated[list[AnyMessage], add_messages]
 
-    # Example 3: Ambiguous request (should ideally go to SQL if it mentions "data" and "tables")
-    ambiguous_result = await master_agent.run(
-        # """
-        #    For customers located in the USA, find the total sales amount for each customer.
-        #    What is the content in human data?
-        # """
-        request,
-        deps=MasterDependencies(db_engine=db_engine, available_files=available_files)
+    connection_string: str
+    files: str
+    agent: str
+    
+    sql_query: Optional[str]
+    detail: Optional[str]
+    query_results: Optional[str]
+    sql_error_message: Optional[str]
+
+    data_insights: Optional[list[str]]
+    insights_error: Optional[str]
+
+    python_codes: Optional[list[str]]
+    chart_error: Optional[str]
+    code_error: Optional[str]
+
+    file_content: Optional[str]
+    summary: Optional[str]
+    file_error_message: Optional[str]
+
+def master_agent_node(state = AllState):
+    master_agent_response = master_agent.run_sync(
+        user_prompt=state["request"][-1].content,
+        deps=master.MasterDependencies(connection_string=state["connection_string"], available_files=list_files(dir =state["files"]))
+        )
+    return {
+        "agent": master_agent_response.output.agent
+    }
+
+def sql_query_creator_node(state: AllState):
+    graph = create_sql_insights_charts_graph()
+    outputs = graph.invoke(state)
+    return outputs
+
+def file_reader_node(state: AllState):
+    file_reader_agent_response = file_reader_agent.run_sync(
+        user_prompt=state["request"][-1].content,
+        deps= file_reader.Dependencies(files=list_files(state["files"]))
+        )
+    
+    if isinstance(file_reader_agent_response.output, FileSuccess):
+        return {
+            "file_content": file_reader_agent_response.output.file_content,
+            "summary": file_reader_agent_response.output.summary,
+        }
+    else:
+        return {
+            "file_error_message": file_reader_agent_response.output.error_message
+        }
+
+
+def output(state: AllState):
+    import json
+    output_state = state.copy()
+    if "connection_string" in output_state:
+        del output_state["connection_string"]
+    
+    # Convert HumanMessage objects to their content strings for JSON serialization
+    if "request" in output_state and isinstance(output_state["request"], list):
+        output_state["request"] = [
+            msg.content if hasattr(msg, 'content') else str(msg)
+            for msg in output_state["request"]
+        ]
+
+    with open("checking_output.json", "w") as f:
+        json.dump(output_state, f, indent=4)
+    return state
+
+def sql_or_file_router(state: AllState):
+    if state["agent"] == BOTH_AGENT:
+        return ["sql_insights_charts_graph", "file_reader_agent"]
+    elif state["agent"] == SQL_AGENT:
+        return ["sql_insights_charts_graph"]
+    elif state["agent"] == FILE_AGENT:
+        return ["file_reader_agent"]
+    elif state["agent"] == NONE:
+        return ["output"]
+    else:
+        return ["output"]
+
+def create_graph():
+    graph = StateGraph(AllState)
+
+    graph.add_node("master", master_agent_node)
+    graph.add_node("sql_insights_charts_graph", sql_query_creator_node)
+    graph.add_node("file_reader_agent", file_reader_node)
+    # graph.add_node("parallel_execution_node", lambda x: x) # A pass-through node
+    graph.add_node("output", output)
+
+    graph.add_conditional_edges("master",
+                                sql_or_file_router,
+                                {
+                                    "sql_insights_charts_graph": "sql_insights_charts_graph",
+                                    "file_reader_agent": "file_reader_agent",
+                                    "output": "output"
+                                }
     )
     
-    return ambiguous_result #, sql_query_result, # file_read_result, 
-# Example usage (for testing purposes)
-if __name__ == "__main__":
-    # Example of a request that should trigger SQL query and insight generation
-    insight_query = "Show me the total sales amount for each artist and provide insights"
-    
-    # Dynamically get available files for the main function's run
-    files_directory = "/mnt/c/Projects/Pydantic_Langgraph_SQL_and_File_Reader_Agents/files"
-    available_files = list_files(files_directory)
+    graph.add_edge("sql_insights_charts_graph", "output")
+    graph.add_edge("file_reader_agent", "output")
 
-    master_response = asyncio.run(main(insight_query))
-    
-    print("\n--- Master Agent Response with Insights ---")
-    # The master_response is a tuple (sql_query_result, file_read_result, ambiguous_result)
-    # We are interested in the last one, which is `ambiguous_result` from the `main` function
-    # which now takes the `request` parameter.
-    # To properly test, the `main` function would need to be refactored to run only one query based on `request`.
-    # For this demonstration, I'll run the insight_query directly.
+    graph.set_entry_point("master")
 
-    insight_result = asyncio.run(master_agent.run(
-        insight_query,
-        deps=MasterDependencies(db_engine=db_engine, available_files=available_files)
-    ))
+    return graph.compile()
 
-    print(insight_result.output)
-    # Original examples (commented out for clarity in this demonstration)
-    # sql_response, file_read_response, generic_result = asyncio.run(main("I wanted to know the average number of album sales by artists and the content of specific agents pdf?"))
-    # print(sql_response.output)
-    # print(file_read_response.output)
-    # print(generic_result.output)
+graph = create_graph()
+
+def main():
+
+    from langchain_core.runnables.graph import MermaidDrawMethod
+
+    graph_png = graph.get_graph().draw_mermaid_png(
+        draw_method=MermaidDrawMethod.PYPPETEER,
+    )
+
+    initial_state = {
+                        "request":
+                            [HumanMessage(content="What are in the sql db, the product drivers for ctre company Accenture, ctre program Transformation GPS and ctre cycle named \"Cycle 1\"? Visualize in table.")],
+                        # "connection_string":
+                        #     create_engine('postgresql+psycopg2://chinook:chinook@localhost:5433/chinook_auto_increment'),
+                        # "files": 
+                        #     list_files(dir ="/mnt/c/Projects/Pydantic_Langgraph_SQL_and_File_Reader_Agents/files")
+                        "connection_string":
+                                            """{
+                                                    "host":"localhost",
+                                                    "dbname":"ctre_unstable",
+                                                    "user":"orgplatform",
+                                                    "password":"orgplatform",
+                                                    "port":5432
+                                            }""",
+                        "files": 
+                            "/mnt/c/Projects/Pydantic_Langgraph_SQL_and_File_Reader_Agents_Vanna/files"
+                    }
+
+    with open("graph.png", "wb") as f:
+        f.write(graph_png)
+
+    for event in graph.stream(initial_state):
+        for key in event:
+            print("\n-----------------------------------")
+            print("Done with " + key)
+            print("\n*******************************************\n")
+
+if  __name__ == "__main__":
+    main()

@@ -54,14 +54,14 @@ def sql_query_creator_node(state: AllState):
                     user_prompt=state["request"][-1].content,
                     deps=sql_query_result.Dependencies(
                                 connection_string= \
-                                    # state["connection_string"]
-                                        """{
-                                            "host":"localhost",
-                                            "dbname":"ctre_unstable",
-                                            "user":"orgplatform",
-                                            "password":"orgplatform",
-                                            "port":5432
-                                        }"""
+                                    state["connection_string"]
+                                        # """{
+                                        #     "host":"localhost",
+                                        #     "dbname":"ctre_unstable",
+                                        #     "user":"orgplatform",
+                                        #     "password":"orgplatform",
+                                        #     "port":5432
+                                        # }"""
                                      
                 ))
     

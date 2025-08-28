@@ -9,8 +9,8 @@ from pydantic_ai import Agent, ModelRetry, RunContext
 from sqlalchemy import create_engine, Engine
 
 from models import OPENAI_MODEL
-from agents import  file_reader, sql_query_creator_insights_curator  
-from agents.sql_query_result import sql_query_creator_agent, SQLResponse
+from agents import  file_reader, sql_query_result  
+from agents.sql_query_result import sql_query_result_agent, SQLResponse
 from agents.file_reader import file_reader_agent,  FileResponse
 from tool_functions.file_operations import list_files
 
@@ -25,14 +25,14 @@ class MasterAgentResponse(BaseModel):
 
 @dataclass
 class MasterDependencies:
-    db_engine: Engine
+    connection_string: str
     available_files: list[str]
 
 master_agent = Agent(
     model=OPENAI_MODEL,
     output_type=MasterAgentResponse,
-    result_tool_description="To decide which agent to use.",
-    result_retries=3,
+    # result_tool_description="To decide which agent to use.",
+    retries=3,
   )
 
 @master_agent.system_prompt
